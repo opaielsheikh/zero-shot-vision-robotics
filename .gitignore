@@ -1,0 +1,26 @@
+# Environment & Secrets (CRITICAL: Never commit .env or secret keys)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.token
+
+# Python cache & artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Runtime simulation output directory
+captured_frames/
