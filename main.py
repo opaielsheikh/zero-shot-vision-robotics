@@ -1,9 +1,13 @@
 """Main entrypoint for the Vision-Driven Robotics Simulation Demo."""
 
 import argparse
+import json
 import os
 import sys
 import time
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from vision_robotics import (
     CameraConfig,
@@ -14,21 +18,46 @@ from vision_robotics import (
 )
 
 
+def print_jev_banner(jev_data: dict, step: int, max_steps: int):
+    """Renders a formatted telemetry panel for the Jev model output."""
+    model = jev_data.get("model", "jev-latest")
+    phase = jev_data.get("action_phase", "unknown")
+    conf = jev_data.get("alignment_confidence", 0.0)
+    safety = jev_data.get("safety_clearance", 0.0)
+    speed = jev_data.get("speed_profile", "standard")
+    req_id = jev_data.get("request_id", "N/A")
+
+    print("\n" + "┌" + "─" * 68 + "┐")
+    print(f"│ 🧠 TYPE-SAFE JEV MODEL INFERENCE [{model}]".ljust(69) + "│")
+    print(f"│ Request ID: {req_id}".ljust(69) + "│")
+    print("├" + "─" * 68 + "┤")
+    print(f"│ 🎯 Decision Phase    : {phase.upper()}".ljust(69) + "│")
+    print(f"│ 📊 Alignment Conf.   : {conf * 100:.1f}% (Noul Score)".ljust(69) + "│")
+    print(f"│ 🛡️ Safety Clearance  : {safety * 100:.1f}% (Noul Score)".ljust(69) + "│")
+    print(f"│ ⚡ Speed Profile     : {speed}".ljust(69) + "│")
+    print("├" + "─" * 68 + "┤")
+    print("│ Raw Model Output:".ljust(69) + "│")
+    raw_choices = json.dumps(jev_data.get("full_choices", {}))
+    raw_nouls = json.dumps(jev_data.get("full_nouls", {}))
+    print(f"│   Choices: {raw_choices}".ljust(69) + "│")
+    print(f"│   Nouls  : {raw_nouls}".ljust(69) + "│")
+    print("└" + "─" * 68 + "┘\n")
+
+
 def run_vision_robotics_demo(
     headless: bool = False,
-    max_steps: int = 5,
+    max_steps: int = 4,
     save_frames: bool = True,
     output_dir: str = "captured_frames",
 ):
     """
-    Executes the turn-based vision-driven perception-action loop.
-    Physics pauses while the VLM perceives the scene and deliberates,
-    eliminating network latency issues.
+    Executes the turn-based vision-driven perception-action loop with live
+    inference from TypeSafe Jev System One model.
     """
     if save_frames:
         os.makedirs(output_dir, exist_ok=True)
 
-    # 1. Initialize Simulation Configuration & Environment
+    # 1. Simulation Configuration & Environment Setup
     config = SimulationConfig(
         gui=not headless,
         camera=CameraConfig(width=640, height=480, fov=60.0),
@@ -44,15 +73,31 @@ def run_vision_robotics_demo(
     print(f"🤖 Controllable Arm DOFs: {env.num_dofs}")
     print(f"📷 Synthetic Camera: {config.camera.width}x{config.camera.height} FOV={config.camera.fov}°")
     print(f"🎯 Target: Red cube positioned on the tabletop.")
+
+    # 2. Check for TypeSafe Jev model credentials
+    typesafe_key = os.environ.get("TYPESAFE_API_KEY")
+    typesafe_model = os.environ.get("TYPESAFE_MODEL", "jev-latest")
+
+    if typesafe_key:
+        agent_mode = "jev"
+        print(f"🧠 TypeSafe Jev Agent: ENABLED (Model: {typesafe_model})")
+    else:
+        agent_mode = "mock"
+        print("ℹ️ No TYPESAFE_API_KEY found in environment. Using simulated visual policy.")
+
     print("=" * 70)
 
-    # 2. Initialize VLM Agent
-    agent = VisionLanguageAgent(num_dofs=env.num_dofs, mode="mock")
+    agent = VisionLanguageAgent(
+        num_dofs=env.num_dofs,
+        mode=agent_mode,
+        api_key=typesafe_key,
+        model_name=typesafe_model,
+    )
     task_prompt = "Locate the red cube on the tabletop and align the robotic arm to reach above it."
 
     try:
         for step in range(1, max_steps + 1):
-            print(f"\n--- [PERCEPTION-ACTION STEP {step}/{max_steps}] ---")
+            print(f"\n==================== [PERCEPTION-ACTION STEP {step}/{max_steps}] ====================")
 
             # -------------------------------------------------------------
             # STEP A: PAUSE SIMULATION & CAPTURE SYNTHETIC CAMERA RGB FRAME
@@ -69,24 +114,31 @@ def run_vision_robotics_demo(
                 print(f"💾 Saved camera snapshot to: {frame_path}")
 
             # -------------------------------------------------------------
-            # STEP B: QUERY VISION-LANGUAGE MODEL (VLM)
+            # STEP B: QUERY JEV / VISION MODEL
             # -------------------------------------------------------------
-            print(f"🧠 Querying VLM with visual frame & task: '{task_prompt}'...")
+            print(f"🧠 Querying {agent.typesafe_model if agent_mode == 'jev' else 'Visual Agent'}...")
             t_model = time.time()
+            current_joint_states = env.get_joint_state_summary()
             action = agent.predict_action(
                 base64_image=b64_img,
                 task_description=task_prompt,
+                joint_summary=current_joint_states,
             )
             model_time_ms = (time.time() - t_model) * 1000
 
-            print(f"💡 VLM Reasoning: {action.reasoning}")
+            # Display Jev System One Telemetry if available
+            if action.jev_data:
+                print_jev_banner(action.jev_data, step, max_steps)
+            else:
+                print(f"💡 Agent Reasoning: {action.reasoning}")
+
             formatted_angles = [round(a, 3) for a in action.target_joint_angles]
-            print(f"🎯 Target Joint Angles (rad): {formatted_angles} ({model_time_ms:.1f}ms)")
+            print(f"🎯 Dispatched Motor Target Angles (rad): {formatted_angles} ({model_time_ms:.1f}ms)")
 
             # -------------------------------------------------------------
             # STEP C: EXECUTE ACTION & STEP PHYSICS FORWARD
             # -------------------------------------------------------------
-            print(f"⚙️ Applying joint position control & stepping physics ({config.robot.action_substeps} ticks)...")
+            print(f"⚙️ Advancing PyBullet physics ({config.robot.action_substeps} ticks @ 240Hz)...")
             env.apply_action(
                 target_joint_angles=action.target_joint_angles,
                 substeps=config.robot.action_substeps,
@@ -94,18 +146,17 @@ def run_vision_robotics_demo(
             )
 
             # Telemetry verification
-            active_joint = env.get_joint_state_summary()[1]  # Shoulder / elbow
-            print(f"📊 Current Joint 1 State: pos={active_joint['position']} rad")
+            active_joint = env.get_joint_state_summary()[1]  # Shoulder joint
+            print(f"📊 Joint 1 State Post-Execution: pos={active_joint['position']} rad")
 
             if action.task_completed:
-                print("\n🎉 VLM indicates visual task goal has been reached!")
+                print("\n🎉 Target acquired! Goal configuration reached.")
                 break
 
         print("\n" + "=" * 70)
         print("🏁 Simulation loop completed successfully.")
         print("=" * 70)
 
-        # Allow user to inspect final pose in GUI mode
         if not headless:
             print("Holding final scene for 2 seconds...")
             time.sleep(2.0)
