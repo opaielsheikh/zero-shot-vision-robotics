@@ -56,6 +56,12 @@ class TabletopRobotEnv:
         # Controllable joint registry
         self.controllable_joints: List[JointInfo] = []
 
+        # 3D In-Simulator Visual HUD tracker IDs
+        self.hud_title_id: Optional[int] = None
+        self.hud_sub_id: Optional[int] = None
+        self.hud_target_id: Optional[int] = None
+        self.beam_id: Optional[int] = None
+
         # Initialize the workspace
         self.reset()
 
@@ -112,6 +118,26 @@ class TabletopRobotEnv:
 
         # Settle initial physics
         self.step_physics(self.config.robot.settle_steps, paced=False)
+
+        # Configure 3D interactive viewport camera framing and target label in GUI mode
+        if self.config.gui:
+            p.resetDebugVisualizerCamera(
+                cameraDistance=1.55,
+                cameraYaw=50.0,
+                cameraPitch=-32.0,
+                cameraTargetPosition=[0.0, 0.05, 0.65],
+            )
+            self.hud_target_id = p.addUserDebugText(
+                text="[TARGET CUBE]",
+                textPosition=[
+                    self.config.target_block_pos[0] - 0.1,
+                    self.config.target_block_pos[1],
+                    self.config.target_block_pos[2] + 0.14,
+                ],
+                textColorRGB=[1.0, 0.2, 0.2],
+                textSize=1.3,
+                lifeTime=0,
+            )
 
     @property
     def num_dofs(self) -> int:
@@ -192,6 +218,95 @@ class TabletopRobotEnv:
         # Step physics forward synchronously while robot moves to target
         steps = substeps or self.config.robot.action_substeps
         self.step_physics(steps, paced=paced)
+
+        # Update targeting beam after joint movement
+        self.update_targeting_beam()
+
+    def update_visual_hud(
+        self,
+        title: str,
+        subtitle: str = "",
+        color: Optional[List[float]] = None,
+    ):
+        """Displays floating 3D HUD text directly inside the PyBullet simulation window."""
+        if not self.config.gui:
+            return
+
+        main_color = color or [0.1, 1.0, 0.4]  # Bright neon green
+        sub_color = [1.0, 0.9, 0.2]            # Bright gold
+
+        text_pos_title = [-0.25, -0.30, 1.30]
+        text_pos_sub = [-0.25, -0.30, 1.18]
+
+        try:
+            if self.hud_title_id is not None and self.hud_title_id >= 0:
+                self.hud_title_id = p.addUserDebugText(
+                    text=title,
+                    textPosition=text_pos_title,
+                    textColorRGB=main_color,
+                    textSize=1.5,
+                    lifeTime=0,
+                    replaceItemUniqueId=self.hud_title_id,
+                )
+            else:
+                self.hud_title_id = p.addUserDebugText(
+                    text=title,
+                    textPosition=text_pos_title,
+                    textColorRGB=main_color,
+                    textSize=1.5,
+                    lifeTime=0,
+                )
+
+            if subtitle:
+                if self.hud_sub_id is not None and self.hud_sub_id >= 0:
+                    self.hud_sub_id = p.addUserDebugText(
+                        text=subtitle,
+                        textPosition=text_pos_sub,
+                        textColorRGB=sub_color,
+                        textSize=1.2,
+                        lifeTime=0,
+                        replaceItemUniqueId=self.hud_sub_id,
+                    )
+                else:
+                    self.hud_sub_id = p.addUserDebugText(
+                        text=subtitle,
+                        textPosition=text_pos_sub,
+                        textColorRGB=sub_color,
+                        textSize=1.2,
+                        lifeTime=0,
+                    )
+        except Exception:
+            pass
+
+    def update_targeting_beam(self, color: Optional[List[float]] = None):
+        """Draws a 3D dynamic visual laser ray between the end-effector and target block."""
+        if not self.config.gui or self.robot_id is None or self.block_id is None:
+            return
+
+        beam_color = color or [0.2, 0.8, 1.0]
+        try:
+            ee_pos = p.getLinkState(self.robot_id, 6)[0]
+            block_pos = p.getBasePositionAndOrientation(self.block_id)[0]
+
+            if self.beam_id is not None and self.beam_id >= 0:
+                self.beam_id = p.addUserDebugLine(
+                    lineFromXYZ=ee_pos,
+                    lineToXYZ=block_pos,
+                    lineColorRGB=beam_color,
+                    lineWidth=2.5,
+                    lifeTime=0,
+                    replaceItemUniqueId=self.beam_id,
+                )
+            else:
+                self.beam_id = p.addUserDebugLine(
+                    lineFromXYZ=ee_pos,
+                    lineToXYZ=block_pos,
+                    lineColorRGB=beam_color,
+                    lineWidth=2.5,
+                    lifeTime=0,
+                )
+        except Exception:
+            pass
 
     def close(self):
         """Disconnects the PyBullet simulation server."""
