@@ -2,27 +2,57 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![Simulator](https://img.shields.io/badge/simulator-PyBullet%20Physics-orange.svg)](https://pybullet.org/)
+[![Model](https://img.shields.io/badge/model-TypeSafe%20Jev%20System%20One-purple.svg)](https://typesafe.ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-An end-to-end, vision-guided robotics manipulation pipeline combining **PyBullet** physics with multimodal **Vision-Language Models (VLMs)**. 
+An end-to-end, vision-driven autonomous robotics simulation combining **PyBullet** 3D physics with **TypeSafe's Jev System One Model (`jev-latest` / `jev-1.13.0`)**.
 
-The autonomous agent makes physical decisions based **strictly on raw RGB visual observations** captured by a synthetic virtual camera—operating without privileged state information (such as ground-truth world-frame simulator coordinates or bounding boxes).
+The robotic agent makes real-time physical decisions based **strictly on raw RGB visual observations** captured by a virtual synthetic camera overlooking the workspace—operating without privileged state information (such as ground-truth world coordinates or bounding boxes).
 
 ---
 
 ## 📸 Perception-Action Trajectory
 
-The model visualizes the workspace, extracts spatial context, and drives the 7-DOF manipulator directly to the target object:
+The model visualizes the workspace, performs zero-shot spatial reasoning, and drives the 7-DOF manipulator directly to the target object:
 
 | Step 1: Perception & Alignment | Step 2: Approach Corridor Extension |
 | :---: | :---: |
 | ![Step 01](assets/images/step_01.jpg) | ![Step 02](assets/images/step_02.jpg) |
-| **Observation**: Red cube detected on tabletop.<br>**Action**: Elevating elbow, aligning base yaw. | **Observation**: Base oriented with block.<br>**Action**: Extending forearm into approach vector. |
+| **Jev Decision**: `ALIGN_BASE`<br>**Confidence**: 49.0% \| **Safety**: 67.0% | **Jev Decision**: `DESCEND_HOVER`<br>**Confidence**: 83.0% \| **Safety**: 66.0% |
 
-| Step 3: Descending Toward Object | Step 4: Visual Target Acquisition |
+| Step 3: Descent & Fine Precision | Step 4: Visual Target Acquisition |
 | :---: | :---: |
 | ![Step 03](assets/images/step_03.jpg) | ![Step 04](assets/images/step_04.jpg) |
-| **Observation**: Manipulator centered over workspace.<br>**Action**: Descending end-effector toward target. | **Observation**: Goal configuration achieved.<br>**Action**: Holding hover pose directly above cube. |
+| **Jev Decision**: `DESCEND_HOVER`<br>**Confidence**: 83.0% \| **Safety**: 43.0% (Near Table) | **Jev Decision**: `TARGET_ACQUIRED`<br>**Confidence**: 91.0% \| **Safety**: 74.0% |
+
+---
+
+## 🧠 Live Jev System One Telemetry
+
+On every decision step, the simulation pauses physics, extracts the RGB frame, and queries TypeSafe's Jev model for structured action choices and confidence scores:
+
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│ 🧠 TYPE-SAFE JEV MODEL INFERENCE [jev-1.13.0]                       │
+│ Request ID: req_01a0afa03994711c82812e59ce5fe7a4                   │
+├────────────────────────────────────────────────────────────────────┤
+│ 🎯 Decision Phase    : ALIGN_BASE                                   │
+│ 📊 Alignment Conf.   : 49.0% (Noul Score)                           │
+│ 🛡️ Safety Clearance  : 67.0% (Noul Score)                          │
+│ ⚡ Speed Profile     : standard_approach                            │
+├────────────────────────────────────────────────────────────────────┤
+│ Raw Model Output:                                                  │
+│   Choices: {"action_phase": "align_base", "speed_profile": "standard_approach"}│
+│   Nouls  : {"alignment_confidence": 0.49, "safety_clearance": 0.67}│
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Real-Time In-Simulation 3D HUD
+The simulation renders a dynamic **3D floating HUD** and an **interactive targeting laser beam** directly inside the PyBullet 3D viewport:
+- **Title**: `JEV [jev-1.13.0]: ALIGN_BASE`
+- **Telemetry**: `Conf: 83% | Safety: 66% | Speed: standard_approach`
+- **Laser Guide**: Real-time 3D vector connecting the end-effector tip to the red cube.
+- **Goal Completion**: Displays `🎯 TARGET ACQUIRED (GOAL REACHED)` upon task completion.
 
 ---
 
@@ -35,7 +65,7 @@ The model visualizes the workspace, extracts spatial context, and drives the 7-D
 │  - 7-DOF Robotic Arm (KUKA LBR iiwa)                   │
 │  - Target Object (Vibrant Red Cube)                    │
 └──────────────────────────┬─────────────────────────────┘
-                           │ 1. Pause Physics & Render
+                           │ 1. Pause Physics & Render Frame
                            ▼
 ┌────────────────────────────────────────────────────────┐
 │                  Synthetic Camera                      │
@@ -43,13 +73,13 @@ The model visualizes the workspace, extracts spatial context, and drives the 7-D
 │  - Projection: `computeProjectionMatrixFOV`            │
 │  - Formats: uint8 NumPy (H, W, 3) ➔ PIL ➔ Base64 JPEG   │
 └──────────────────────────┬─────────────────────────────┘
-                           │ 2. Multimodal API Payload
+                           │ 2. Multimodal State & Observation
                            ▼
 ┌────────────────────────────────────────────────────────┐
-│             Vision-Language Model (VLM)                │
-│  - Zero-shot spatial perception from RGB frame         │
-│  - Enforces Structured JSON Output via Pydantic:       │
-│    { reasoning, target_joint_angles, is_terminal }     │
+│             TypeSafe Jev System One Model              │
+│  - Evaluates spatial context, alignment, & safety      │
+│  - Returns structured Choices & Noul confidence:       │
+│    { action_phase, alignment_confidence, ... }         │
 └──────────────────────────┬─────────────────────────────┘
                            │ 3. Dispatch Joint Targets
                            ▼
@@ -63,30 +93,30 @@ The model visualizes the workspace, extracts spatial context, and drives the 7-D
 
 ---
 
-## 🧠 Overcoming Perception-Action Latency
+## ⏱️ Overcoming Perception-Action Latency
 
-In continuous simulation loops, asynchronous external API queries incur between **200ms and 800ms of latency**. If physics continues stepping during inference, the robot reacts to stale observations, resulting in violent oscillations, joint overshoot, or physics instability.
+In standard continuous simulation loops, external API round trips (typically 200ms–800ms) introduce severe perception delay. If the simulation steps during deliberation, the robot acts on outdated observations.
 
-### Synchronous Turn-Based Execution
-This framework decouples deliberation time from physical time:
-1. **Freeze**: Simulation physics remains paused while the synthetic camera frame is extracted and transmitted.
-2. **Infer**: The multimodal model deliberates and produces target joint angles.
-3. **Advance**: Motor position controllers are updated, and the simulation advances synchronously for an exact physical window ($\Delta t = 120 \text{ ticks} \times \frac{1}{240}\text{s} = 0.5\text{s}$) to allow joint settling before capturing the next observation.
+### Synchronous Turn-Based Control Loop
+This framework eliminates lag through step-based physics synchronization:
+1. **Pause**: Simulation physics pauses while the camera frame is captured.
+2. **Deliberate**: Jev processes the observation and computes action vectors.
+3. **Step**: Target joint angles are dispatched, and physics advances synchronously for a controlled window ($\Delta t = 120 \text{ ticks} \times \frac{1}{240}\text{s} = 0.5\text{s}$) to reach mechanical steady-state before the next observation is captured.
 
 ---
 
-## 📐 Virtual Synthetic Camera Formulation
+## 📐 Virtual Camera Formulation
 
-The camera pose is parameterized with spherical coordinates relative to the workspace target:
+The synthetic camera is positioned with spherical coordinates relative to the workspace center:
 
 $$
-\mathbf{p}_{\text{target}} = \begin{bmatrix} 0.0 & 0.0 & 0.65 \end{bmatrix}^T, \quad d = 1.4\text{m}, \quad \text{yaw} = 50^\circ, \quad \text{pitch} = -35^\circ
+\mathbf{p}_{\text{target}} = \begin{bmatrix} 0.0 & 0.05 & 0.65 \end{bmatrix}^T, \quad d = 1.4\text{m}, \quad \text{yaw} = 50^\circ, \quad \text{pitch} = -35^\circ
 $$
 
 PyBullet computes the view matrix $\mathbf{V}$ and perspective projection matrix $\mathbf{P}$:
 ```python
 view_matrix = p.computeViewMatrixFromYawPitchRoll(
-    cameraTargetPosition=[0.0, 0.0, 0.65],
+    cameraTargetPosition=[0.0, 0.05, 0.65],
     distance=1.4,
     yaw=50.0,
     pitch=-35.0,
@@ -102,22 +132,6 @@ proj_matrix = p.computeProjectionMatrixFOV(
 )
 ```
 
-The raw OpenGL buffer is extracted and normalized into standard formats:
-```python
-# Extract RGBA buffer and reshape
-_, _, rgb_raw, _, _ = p.getCameraImage(
-    width=640,
-    height=480,
-    viewMatrix=view_matrix,
-    projectionMatrix=proj_matrix,
-    renderer=p.ER_BULLET_HARDWARE_OPENGL,
-    flags=p.ER_NO_SEGMENTATION_MASK,
-)
-
-rgba_array = np.reshape(rgb_raw, (480, 640, 4)).astype(np.uint8)
-rgb_array = rgba_array[:, :, :3]  # Strip alpha
-```
-
 ---
 
 ## 📦 Directory Layout
@@ -125,29 +139,30 @@ rgb_array = rgba_array[:, :, :3]  # Strip alpha
 ```
 zero-shot-vision-robotics/
 ├── assets/
-│   └── images/                   # Captured trajectory frames
+│   └── images/                   # Trajectory frames for README
 │       ├── step_01.jpg
 │       ├── step_02.jpg
 │       ├── step_03.jpg
 │       └── step_04.jpg
 ├── vision_robotics/              # Core Simulation Package
 │   ├── __init__.py
-│   ├── agent.py                  # VLM action schema & policy connectors
-│   ├── camera.py                 # Synthetic camera matrix calculation & RGB capture
+│   ├── agent.py                  # TypeSafe Jev & multimodal policy integration
+│   ├── camera.py                 # Camera matrices, RGB extraction, & Base64
 │   ├── config.py                 # Simulation, camera, and robot dataclasses
-│   └── environment.py            # Tabletop scene setup & PyBullet joint controllers
-├── .env.example                  # Safe template for API keys
-├── .gitignore                    # Prevents leaking .env, tokens, and caches
+│   └── environment.py            # Tabletop environment, 3D HUD, & joint control
+├── .env.example                  # Template for API keys (safe to commit)
+├── .gitignore                    # Strictly ignores .env and local caches
 ├── main.py                       # Executable perception-action loop
 ├── requirements.txt              # Production dependencies
-└── test_simulation.py            # Unit test suite
+├── run.sh                        # One-command runner script
+└── test_simulation.py            # Automated test suite (including live Jev test)
 ```
 
 ---
 
 ## ⚡ Quickstart
 
-### 1. Clone & Install Dependencies
+### 1. Clone & Setup
 ```bash
 git clone https://github.com/opaielsheikh/zero-shot-vision-robotics.git
 cd zero-shot-vision-robotics
@@ -156,58 +171,33 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Run Interactive 3D Simulation
-To launch the 3D PyBullet visualizer with real-time physics:
-```bash
-python main.py
-```
-
-### 3. Run Headless Mode
-For headless environments, Docker containers, or CI:
-```bash
-python main.py --headless --steps 4 --output-dir captured_frames
-```
-
-### 4. Run Test Suite
-```bash
-python test_simulation.py
-```
-
----
-
-## 🔌 Connecting Live Multimodal APIs
-
-The agent architecture uses a Pydantic schema enforcing structured JSON output:
-
-```python
-class VLMAction(BaseModel):
-    reasoning: str
-    target_joint_angles: List[float]
-    gripper_closed: bool = False
-    task_completed: bool = False
-```
-
-### Google Gemini (Gemini 2.5 Flash / Pro)
-Copy `.env.example` to `.env` and set your key:
+### 2. Configure API Key
+Copy `.env.example` to `.env` and insert your TypeSafe API key:
 ```bash
 cp .env.example .env
 ```
-
-In `main.py`:
-```python
-from vision_robotics import VisionLanguageAgent
-import os
-
-agent = VisionLanguageAgent(
-    num_dofs=env.num_dofs,
-    mode="gemini",
-    api_key=os.environ.get("GEMINI_API_KEY"),
-    model_name="gemini-2.5-flash",
-)
+Edit `.env`:
+```ini
+TYPESAFE_API_KEY=your_typesafe_api_key_here
+TYPESAFE_MODEL=jev-latest
 ```
 
-### Custom OpenAI / Anthropic / Local Vision Models
-Any model that accepts image parts and conforms to the `VLMAction` JSON schema can be plugged into `vision_robotics/agent.py` by implementing `predict_action`.
+### 3. Run Interactive 3D Simulation
+```bash
+./run.sh
+```
+*Launches the 3D PyBullet visualizer with real-time physics, 3D floating HUD, and targeting beam.*
+
+### 4. Run Headless Mode
+```bash
+./run.sh --headless --steps 4 --output-dir captured_frames
+```
+
+### 5. Run Automated Tests
+```bash
+python test_simulation.py
+```
+*Validates camera matrices, frame formatting, motor controls, and the live Jev System One connection.*
 
 ---
 
@@ -217,4 +207,4 @@ Your private API keys (stored in `.env`) are **strictly ignored** by `.gitignore
 ---
 
 ## 📜 License
-MIT License. Feel free to use and extend for academic, research, and robotics development.
+MIT License. Feel free to use and extend for robotics research and vision-language development.
