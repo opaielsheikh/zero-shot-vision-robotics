@@ -167,8 +167,12 @@ class TabletopRobotEnv:
         Advances the physics simulation for a discrete number of ticks.
         In GUI mode, pacing ensures visually natural real-time rendering.
         """
+        if not p.isConnected():
+            return
         dt = self.config.robot.time_step
         for _ in range(num_substeps):
+            if not p.isConnected():
+                break
             p.stepSimulation()
             if self.config.gui and paced:
                 time.sleep(dt)
@@ -193,6 +197,9 @@ class TabletopRobotEnv:
                 f"Action dimension mismatch: Expected {self.num_dofs} joint targets, "
                 f"received {len(target_joint_angles)}."
             )
+
+        if not p.isConnected():
+            return
 
         # Clip commands within safe joint limits
         clipped_targets = [

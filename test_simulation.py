@@ -70,6 +70,25 @@ class TestVisionRoboticsEnv(unittest.TestCase):
         states = self.env.get_joint_state_summary()
         self.assertEqual(len(states), self.env.num_dofs)
 
+    def test_jev_system_one_live(self):
+        """Verify live Jev System One model integration if TYPESAFE_API_KEY is configured."""
+        import os
+        api_key = os.environ.get("TYPESAFE_API_KEY")
+        if not api_key:
+            self.skipTest("TYPESAFE_API_KEY not found in environment.")
+
+        agent = VisionLanguageAgent(num_dofs=self.env.num_dofs, mode="jev")
+        _, _, b64_str = self.env.capture_frame()
+        action = agent.predict_action(
+            base64_image=b64_str,
+            task_description="Reach for the red target cube",
+            joint_summary=self.env.get_joint_state_summary(),
+        )
+        self.assertIsNotNone(action.jev_data)
+        self.assertIn("jev", action.jev_data["model"])
+        self.assertIn("action_phase", action.jev_data["full_choices"])
+        self.assertIn("alignment_confidence", action.jev_data["full_nouls"])
+
 
 if __name__ == "__main__":
     unittest.main()
